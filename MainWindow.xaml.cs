@@ -65,7 +65,21 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
         long seed = Environment.TickCount;
         double previousAverage = 0;
         Stopwatch stopwatch = new Stopwatch();
+        public int GetWindowWidth {
+            get {
+                return Properties.Settings.Default.Width;
+            }
+        }
 
+        public int GetWindowHeight {
+            get {
+                int winHeight = Properties.Settings.Default.Height;
+                if(winHeight == 0) {
+                    winHeight = (int) (GetWindowWidth * 9 / 16);
+                }
+                return winHeight;
+            }
+        }
         /// <summary>
         /// Initializes a new instance of the MainWindow class.
         /// </summary>
@@ -100,8 +114,13 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
             this.kinectSensor.Open();
 
             this.DataContext = this;
-
+            
             this.InitializeComponent();
+            this.Width = GetWindowWidth;
+            this.Height = GetWindowHeight;
+            mainImage.Width = GetWindowWidth;
+            mainImage.Height = GetWindowHeight;
+            this.textBlock.Width = this.Width;
         }
 
         /// <summary>
