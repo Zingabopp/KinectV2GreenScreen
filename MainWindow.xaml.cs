@@ -14,6 +14,7 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
     using System.Windows.Media;
     using System.Windows.Media.Imaging;
     using Microsoft.Kinect;
+    using System.Windows.Input;
 
     /// <summary>
     /// Interaction logic for MainWindow
@@ -58,6 +59,12 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
         /// Current status text to display
         /// </summary>
         private string statusText = null;
+        private bool enableGreenScreen = true;
+        private bool showfps = false;
+        private double lastFrameFPS = 0;
+        long seed = Environment.TickCount;
+        double previousAverage = 0;
+        Stopwatch stopwatch = new Stopwatch();
 
         /// <summary>
         /// Initializes a new instance of the MainWindow class.
@@ -68,6 +75,8 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
             this.multiFrameSourceReader = this.kinectSensor.OpenMultiSourceFrameReader(FrameSourceTypes.Depth | FrameSourceTypes.Color | FrameSourceTypes.BodyIndex);
 
             this.multiFrameSourceReader.MultiSourceFrameArrived += this.Reader_MultiSourceFrameArrived;
+
+            this.KeyUp += HandleKeyPress;
 
             this.coordinateMapper = this.kinectSensor.CoordinateMapper;
 
@@ -108,7 +117,19 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
                 return this.bitmap;
             }
         }
-        
+
+        private void HandleKeyPress(object sender, KeyEventArgs e) {
+
+            switch (e.Key) {
+                case Key.C:
+                    enableGreenScreen = !enableGreenScreen;
+                    break;
+                case Key.S:
+                    showfps = !showfps;
+                    break;
+            }
+        }
+
         /// <summary>
         /// Execute shutdown tasks
         /// </summary>
@@ -133,6 +154,10 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
         /// <param name="sender">object sending the event</param>
         /// <param name="e">event arguments</param>
         private void Reader_MultiSourceFrameArrived(object sender, MultiSourceFrameArrivedEventArgs e) {
+            if (showfps) {
+                stopwatch.Reset();
+                stopwatch.Start();
+            }
             int depthWidth = 0;
             int depthHeight = 0;
 
@@ -187,6 +212,7 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
                 isBitmapLocked = true;
 
                 colorFrame.CopyConvertedFrameDataToIntPtr(this.bitmap.BackBuffer, this.bitmapBackBufferSize, ColorImageFormat.Bgra);
+                lastFrameFPS = 1.0 / colorFrame.ColorCameraSettings.FrameInterval.TotalSeconds;
 
                 // We're done with the ColorFrame 
                 colorFrame.Dispose();
@@ -199,34 +225,36 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
 
                         int colorMappedToDepthPointCount = this.colorMappedToDepthPoints.Length;
 
-                        fixed (DepthSpacePoint* colorMappedToDepthPointsPointer = this.colorMappedToDepthPoints) {
-                            // Treat the color data as 4-byte pixels
-                            uint* bitmapPixelsPointer = (uint*)this.bitmap.BackBuffer;
+                        if (enableGreenScreen) {
+                            fixed (DepthSpacePoint* colorMappedToDepthPointsPointer = this.colorMappedToDepthPoints) {
+                                // Treat the color data as 4-byte pixels
+                                uint* bitmapPixelsPointer = (uint*)this.bitmap.BackBuffer;
 
-                            // Loop over each row and column of the color image
-                            // Zero out any pixels that don't correspond to a body index
-                            for (int colorIndex = 0; colorIndex < colorMappedToDepthPointCount; ++colorIndex) {
-                                float colorMappedToDepthX = colorMappedToDepthPointsPointer[colorIndex].X;
-                                float colorMappedToDepthY = colorMappedToDepthPointsPointer[colorIndex].Y;
+                                // Loop over each row and column of the color image
+                                // Zero out any pixels that don't correspond to a body index
+                                for (int colorIndex = 0; colorIndex < colorMappedToDepthPointCount; ++colorIndex) {
+                                    float colorMappedToDepthX = colorMappedToDepthPointsPointer[colorIndex].X;
+                                    float colorMappedToDepthY = colorMappedToDepthPointsPointer[colorIndex].Y;
 
-                                // The sentinel value is -inf, -inf, meaning that no depth pixel corresponds to this color pixel.
-                                if (!float.IsNegativeInfinity(colorMappedToDepthX) && !float.IsNegativeInfinity(colorMappedToDepthY)) {
-                                    // Make sure the depth pixel maps to a valid point in color space
-                                    int depthX = (int)(colorMappedToDepthX + 0.5f);
-                                    int depthY = (int)(colorMappedToDepthY + 0.5f);
+                                    // The sentinel value is -inf, -inf, meaning that no depth pixel corresponds to this color pixel.
+                                    if (!float.IsNegativeInfinity(colorMappedToDepthX) && !float.IsNegativeInfinity(colorMappedToDepthY)) {
+                                        // Make sure the depth pixel maps to a valid point in color space
+                                        int depthX = (int)(colorMappedToDepthX + 0.5f);
+                                        int depthY = (int)(colorMappedToDepthY + 0.5f);
 
-                                    // If the point is not valid, there is no body index there.
-                                    if ((depthX >= 0) && (depthX < depthWidth) && (depthY >= 0) && (depthY < depthHeight)) {
-                                        int depthIndex = (depthY * depthWidth) + depthX;
+                                        // If the point is not valid, there is no body index there.
+                                        if ((depthX >= 0) && (depthX < depthWidth) && (depthY >= 0) && (depthY < depthHeight)) {
+                                            int depthIndex = (depthY * depthWidth) + depthX;
 
-                                        // If we are tracking a body for the current pixel, do not zero out the pixel
-                                        if (bodyIndexDataPointer[depthIndex] != 0xff) {
-                                            continue;
+                                            // If we are tracking a body for the current pixel, do not zero out the pixel
+                                            if (bodyIndexDataPointer[depthIndex] != 0xff) {
+                                                continue;
+                                            }
                                         }
                                     }
-                                }
 
-                                bitmapPixelsPointer[colorIndex] = 0;
+                                    bitmapPixelsPointer[colorIndex] = 0;
+                                }
                             }
                         }
 
@@ -249,6 +277,14 @@ namespace Microsoft.Samples.Kinect.CoordinateMappingBasics {
 
                 if (bodyIndexFrame != null) {
                     bodyIndexFrame.Dispose();
+                }
+                if (showfps) {
+                    stopwatch.Stop();
+                    previousAverage = (0.9 * previousAverage) + (0.1 * stopwatch.Elapsed.TotalMilliseconds);
+                    textBlock.Text = "Processing time: " + previousAverage.ToString("0.000000") + " ms, Kinect FPS:" + lastFrameFPS.ToString("0.000000") + " fps";
+                } else {
+                    stopwatch.Stop();
+                    textBlock.Text = "";
                 }
             }
         }
